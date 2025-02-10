@@ -18,26 +18,56 @@ from g2pw.utils import load_config
 MODEL_URL = 'https://storage.googleapis.com/esun-ai/g2pW/G2PWModel-v2-onnx.zip'
 
 
-def predict(model, dataloader, device, labels, turnoff_tqdm=False):
-    model.eval()
+# def predict(model, dataloader, device, labels, turnoff_tqdm=False):
+#     model.eval()
+#     all_preds = []
+#     all_confidences = []
+#     with torch.no_grad():
+#         generator = dataloader if turnoff_tqdm else tqdm(dataloader, desc='predict')
+#         for data in generator:
+#             input_ids, token_type_ids, attention_mask, phoneme_mask, char_ids, position_ids = \
+#                 [data[name].to(device) for name in ('input_ids', 'token_type_ids', 'attention_mask', 'phoneme_mask', 'char_ids', 'position_ids')]
+#             probs = model(
+#                 input_ids=input_ids,
+#                 token_type_ids=token_type_ids,
+#                 attention_mask=attention_mask,
+#                 phoneme_mask=phoneme_mask,
+#                 char_ids=char_ids,
+#                 position_ids=position_ids
+#             )
+#             max_probs, preds = map(lambda x: x.cpu().tolist(), probs.max(dim=-1))
+#             all_preds += [labels[pred] for pred in preds]
+#             all_confidences += max_probs
+#     return all_preds, all_confidences
+
+
+def predict(onnx_session, dataloader, labels, turnoff_tqdm=False):
     all_preds = []
     all_confidences = []
-    with torch.no_grad():
-        generator = dataloader if turnoff_tqdm else tqdm(dataloader, desc='predict')
-        for data in generator:
-            input_ids, token_type_ids, attention_mask, phoneme_mask, char_ids, position_ids = \
-                [data[name].to(device) for name in ('input_ids', 'token_type_ids', 'attention_mask', 'phoneme_mask', 'char_ids', 'position_ids')]
-            probs = model(
-                input_ids=input_ids,
-                token_type_ids=token_type_ids,
-                attention_mask=attention_mask,
-                phoneme_mask=phoneme_mask,
-                char_ids=char_ids,
-                position_ids=position_ids
-            )
-            max_probs, preds = map(lambda x: x.cpu().tolist(), probs.max(dim=-1))
-            all_preds += [labels[pred] for pred in preds]
-            all_confidences += max_probs
+
+    generator = dataloader if turnoff_tqdm else tqdm(dataloader, desc='predict')
+    for data in generator:
+        input_ids, token_type_ids, attention_mask, phoneme_mask, char_ids, position_ids = \
+            [data[name] for name in ('input_ids', 'token_type_ids', 'attention_mask', 'phoneme_mask', 'char_ids', 'position_ids')]
+
+        probs = onnx_session.run(
+            [],
+            {
+                'input_ids': input_ids.numpy(),
+                'token_type_ids': token_type_ids.numpy(),
+                'attention_mask': attention_mask.numpy(),
+                'phoneme_mask': phoneme_mask.numpy(),
+                'char_ids': char_ids.numpy(),
+                'position_ids': position_ids.numpy()
+            }
+        )[0]
+
+        preds = np.argmax(probs, axis=-1)
+        max_probs = probs[np.arange(probs.shape[0]), preds]
+
+        all_preds += [labels[pred] for pred in preds.tolist()]
+        all_confidences += max_probs.tolist()
+
     return all_preds, all_confidences
 
 
@@ -61,8 +91,11 @@ class G2PWConverter:
         sess_options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
         sess_options.execution_mode = onnxruntime.ExecutionMode.ORT_SEQUENTIAL
         sess_options.intra_op_num_threads = 2
-        self.session_g2pw =  onnxruntime.InferenceSession(os.path.join(model_dir, 'g2pw.onnx'), sess_options=sess_options)
-        
+        # self.session_g2pw =  onnxruntime.InferenceSession(os.path.join(model_dir, 'g2pw.onnx'), sess_options=sess_options)
+        print("use CUDAExecutionProvider")
+        print(os.path.join(model_dir, 'g2pw.onnx'))
+        self.session_g2pw =  onnxruntime.InferenceSession(os.path.join(model_dir, 'g2pw.onnx'), sess_options=sess_options, providers=['CUDAExecutionProvider'])
+
         self.config = load_config(os.path.join(model_dir, 'config.py'), use_default=True)
 
         self.num_workers = num_workers if num_workers else self.config.num_workers
