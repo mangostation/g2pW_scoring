@@ -51,6 +51,7 @@ def main(config, checkpoint, sent_path, output_path=None):
         use_pos=config.use_pos,
         param_pos=config.param_pos
     )
+    # model.output_hidden_states = True
     model.load_state_dict(torch.load(checkpoint, map_location=device))
     model.to(device)
     model.eval()

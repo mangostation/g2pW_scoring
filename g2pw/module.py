@@ -44,6 +44,8 @@ class G2PW(BertPreTrainedModel):
         self.num_chars = len(chars)
         self.num_pos_tags = len(pos_tags)
 
+        self.config.output_hidden_states = True
+        self.config.output_dict = True
         self.bert = BertModel(self.config)
 
         self.classifier = nn.Linear(self.config.hidden_size, self.num_labels)
@@ -141,11 +143,20 @@ class G2PW(BertPreTrainedModel):
                 return_dict=False
             )
         else:
-            sequence_output, pooled_output = self.bert(
+            # sequence_output, pooled_output = self.bert(
+            #     input_ids,
+            #     token_type_ids=token_type_ids,
+            #     attention_mask=attention_mask
+            # )
+            outputs = self.bert(
                 input_ids,
                 token_type_ids=token_type_ids,
                 attention_mask=attention_mask
             )
+
+        print(outputs[2][-1])
+
+        sequence_output = outputs[0]
 
         batch_size = input_ids.size(0)
         orig_selected_hidden = sequence_output[torch.arange(batch_size), position_ids]
